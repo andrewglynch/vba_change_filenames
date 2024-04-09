@@ -1,0 +1,157 @@
+Sub RenameAndMoveFiles()
+    Dim ws As Worksheet
+    Dim wsLog As Worksheet
+    Dim logRow As Long, successRow As Long
+    Dim currentTime As String
+    Dim lastRow As Long
+    Dim i As Long
+    Dim currentPath As String, newPath As String, newFolder As String, newFilename As String
+    Dim hasErrors As Boolean
+    Dim wasError As Boolean
+
+    ' Sets worksheet that contains file data
+    Set ws = ThisWorkbook.Sheets("Input data here") ' Replace with your actual sheet name
+
+    ' Create and name the Run Log sheet with a timestamp
+    currentTime = Format(Now(), "yymmdd hhmmss")
+    On Error Resume Next
+    Set wsLog = ThisWorkbook.Sheets("Run Log " & currentTime)
+    If wsLog Is Nothing Then
+        Set wsLog = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsLog.Name = "Run Log " & currentTime
+    End If
+    On Error GoTo 0
+
+    ' Initial setup for logging rows
+    logRow = 2
+    successRow = logRow
+    hasErrors = False
+    
+    ' Define headers for the error log
+    With wsLog
+        .Cells(1, 1).Value = "Error Line"
+        .Cells(1, 2).Value = "File Path"
+        .Cells(1, 3).Value = "Error Message"
+        .Cells(1, 4).Value = "Timestamp"
+    End With
+    
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    For i = 2 To lastRow
+        wasError = False ' Initialize wasError at the start of the loop
+        currentPath = ws.Cells(i, "A").Value
+        newFolder = ws.Cells(i, "E").Value
+        newFilename = ws.Cells(i, "D").Value
+    
+        ' Ensure the new folder path ends with a backslash
+        If Right(newFolder, 1) <> "\" Then newFolder = newFolder & "\"
+        newPath = newFolder & newFilename
+    
+        ' Check if the current file exists
+        If Dir(currentPath) <> "" Then
+            ' Check if the target folder exists, create it if not
+            If Not FolderExists(newFolder) Then
+                CreateFullPath newFolder
+            End If
+    
+            ' Attempt to move and rename the file
+            On Error Resume Next
+            
+            Name currentPath As newPath
+            
+            If Err.Number <> 0 Then
+                ' Log error details in the Run Log sheet
+                wsLog.Cells(logRow, 1).Value = i
+                wsLog.Cells(logRow, 2).Value = currentPath
+                wsLog.Cells(logRow, 3).Value = Err.Description
+                wsLog.Cells(logRow, 4).Value = Now()
+                logRow = logRow + 1
+                hasErrors = True
+                wasError = True
+                Err.Clear
+            Else
+                ' Log success details in columns G to K
+                wsLog.Cells(successRow, 7).Value = i
+                wsLog.Cells(successRow, 8).Value = currentPath
+                wsLog.Cells(successRow, 9).Value = newPath
+                wsLog.Cells(successRow, 10).Value = Now()
+                wsLog.Cells(successRow, 11).Value = "Success!"
+                successRow = successRow + 1
+            End If
+        
+        Else
+            ' File does not exist, log error
+            wsLog.Cells(logRow, 1).Value = i
+            wsLog.Cells(logRow, 2).Value = currentPath
+            wsLog.Cells(logRow, 3).Value = "File not found"
+            wsLog.Cells(logRow, 4).Value = Now()
+            logRow = logRow + 1
+            hasErrors = True
+            wasError = True
+        End If
+    
+    Next i
+
+    ' Insert the summary at the top of the log
+    wsLog.Rows("1:6").Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+    wsLog.Range("A1").Value = "Errors"
+    wsLog.Range("B1").Value = logRow - 2 ' Assuming header is in row 1 and data starts from row 2
+    wsLog.Range("A2").Value = "Successful files"
+    wsLog.Range("B2").Value = successRow - 2 ' Assuming header is in row 1 and data starts from row 2
+    wsLog.Range("A3").Value = "Total files attempted"
+    wsLog.Range("B3").Value = lastRow - 1 ' Total files minus the header row
+    wsLog.Range("A7:K7").Font.Bold = True
+    wsLog.Range("A1:A3").Font.Bold = True
+    wsLog.Range("A1:B3").Font.Size = 18
+    wsLog.Range("A5").Value = "Error Log"
+    wsLog.Range("G5").Value = "Success Log"
+    wsLog.Range("A5:G5").Font.Bold = True
+    wsLog.Range("A5:G5").Font.Size = 14
+    
+    ' Add headers for the success section if there are successful files
+    If successRow > 2 Then ' There are successful file operations
+        wsLog.Range("G7").Value = "Line"
+        wsLog.Range("H7").Value = "Old path"
+        wsLog.Range("I7").Value = "New path"
+        wsLog.Range("J7").Value = "Timestamp"
+        wsLog.Range("K7").Value = "Status"
+        wsLog.Range("A7:K7").Font.Bold = True
+    End If
+
+    ' AutoFit columns and apply bold to headers
+    With wsLog
+        .Columns("A:K").AutoFit
+
+    End With
+
+    ' Select the header row or the success message
+    wsLog.Activate
+    If hasErrors Then
+        wsLog.Cells(5, 1).Select ' Select the first row of errors
+    Else
+        wsLog.Range("A8").Value = "No errors, great job!"
+        wsLog.Range("A1").Select ' Select the summary cell
+    End If
+End Sub
+
+Function FolderExists(ByVal path As String) As Boolean
+    On Error Resume Next ' In case of an error (like invalid path), return False
+    FolderExists = (Dir(path, vbDirectory) <> "") And (Err.Number = 0)
+    On Error GoTo 0 ' Turn off error skipping
+End Function
+
+Sub CreateFullPath(ByVal path As String)
+    Dim parts As Variant
+    parts = Split(path, "\")
+    Dim i As Integer
+    Dim constructedPath As String
+    
+    For i = LBound(parts) To UBound(parts) - 1 ' Exclude the last part which is expected to be the new folder or a trailing backslash
+        constructedPath = constructedPath & parts(i) & "\"
+        If Not FolderExists(constructedPath) Then
+            On Error Resume Next ' In case of an error (like invalid path), skip creating this part
+            MkDir constructedPath
+            On Error GoTo 0 ' Turn off error skipping
+        End If
+    Next i
+End Sub
